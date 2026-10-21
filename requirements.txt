@@ -1,5 +1,7 @@
-streamlit
+streamlit>=1.40
 requests
-bs4
-pandas
+beautifulsoup4
 lxml
+pandas
+plotly
+openpyxl
