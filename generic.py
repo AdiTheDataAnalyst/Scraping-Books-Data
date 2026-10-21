@@ -5,7 +5,6 @@ import ipaddress
 import socket
 import time
 from functools import lru_cache
-from io import StringIO
 from typing import Callable
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
@@ -90,16 +89,32 @@ def _soup(html: str) -> BeautifulSoup:
         return BeautifulSoup(html, "html.parser")
 
 
+def _tables(soup: BeautifulSoup) -> list[pd.DataFrame]:
+    """Parse HTML tables with BeautifulSoup so no extra parser package is needed."""
+    frames = []
+    for table in soup.select("table"):
+        rows = [[c.get_text(" ", strip=True) for c in tr.find_all(["th", "td"])] for tr in table.find_all("tr")]
+        rows = [r for r in rows if r]
+        if len(rows) < 2:
+            continue
+        width = max(map(len, rows))
+        rows = [r + [""] * (width - len(r)) for r in rows]
+        names, seen = [], {}
+        for i, h in enumerate(rows[0]):
+            h = h or f"Column {i + 1}"
+            seen[h] = seen.get(h, 0) + 1
+            names.append(h if seen[h] == 1 else f"{h} ({seen[h]})")
+        frames.append(pd.DataFrame(rows[1:], columns=names))
+    return frames
+
+
 def auto_extract(html: str, url: str) -> dict[str, pd.DataFrame]:
     soup = _soup(html)
     meta = [("Title", soup.title.get_text(strip=True) if soup.title else None)]
     for tag in soup.select("meta[name=description], meta[property^='og:']"):
         meta.append((tag.get("property") or tag.get("name"), tag.get("content")))
     links = {(urljoin(url, a["href"]), a.get_text(" ", strip=True)) for a in soup.select("a[href]")}
-    try:
-        tables = pd.read_html(StringIO(html))
-    except ValueError:
-        tables = []
+    tables = _tables(soup)
     out = {
         "Metadata": pd.DataFrame(meta, columns=["Property", "Value"]).dropna(),
         "Headings": pd.DataFrame([(h.name.upper(), h.get_text(" ", strip=True)) for h in soup.select("h1, h2, h3")],
